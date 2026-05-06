@@ -70,12 +70,17 @@ echo "--- Setting up Python environment ---"
 echo "Using system Python: $(python3 --version)"
 
 # When running on Kokoro Instances with the MOSS network proxy, AR auth is
-# injected automatically by the proxy. Skip the keyring auth package.
-# Use --no-cache-dir to avoid a known MOSS proxy caching issue (go/kokoro-network-monitoring).
+# injected automatically by the proxy. The ubuntu2204/full:current container
+# already ships pip, setuptools, wheel, and twine — skip the network call
+# entirely and just verify they're available.
 if [[ "${NETWORK_PROXY_ENABLED:-}" == "true" ]]; then
-  python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel build twine 2>&1 | tail -3
+  echo "MOSS proxy detected — using pre-installed packages."
+  for pkg in setuptools wheel twine; do
+    python3 -c "import importlib; importlib.import_module('$pkg')" 2>/dev/null \
+      || { echo "ERROR: Required package '$pkg' not found."; exit 1; }
+  done
 else
-  python3 -m pip install --upgrade pip setuptools wheel build twine \
+  python3 -m pip install --upgrade pip setuptools wheel twine \
       keyring keyrings.google-artifactregistry-auth 2>&1 | tail -3
 fi
 
@@ -147,10 +152,11 @@ for PLATFORM in "${!PLATFORM_TAGS[@]}"; do
   touch "${BIN_DEST}/__init__.py"
 
   # Build the wheel, then re-tag with the correct platform.
-  # pyproject.toml projects use `python -m build`; we then use
-  # `wheel tags` to set the platform tag properly.
-  python -m build --wheel --outdir "${DIST_DIR}"
-  python -m wheel tags \
+  # Use pip wheel (not 'python -m build') because the 'build' package
+  # is unavailable through the MOSS network proxy. pip wheel invokes
+  # the setuptools backend directly.
+  python3 -m pip wheel --no-deps --wheel-dir "${DIST_DIR}" .
+  python3 -m wheel tags \
     --platform-tag="${WHEEL_PLAT}" \
     --remove \
     "${DIST_DIR}"/*-py3-none-any.whl
