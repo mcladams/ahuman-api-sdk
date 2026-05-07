@@ -129,17 +129,14 @@ class Agent:
         logging.info("Connecting to MCP servers...")
         self._mcp_bridge = bridge.McpBridge(self._tool_runner)
         for server_cfg in self._config.mcp_servers:
-          srv_type = server_cfg.get("type")
-          if srv_type == "stdio":
+          if server_cfg.type == "stdio":
             await self._mcp_bridge.connect_stdio(
-                server_cfg["command"], server_cfg.get("args", [])
+                server_cfg.command, server_cfg.args
             )
-          elif srv_type == "sse":
+          elif server_cfg.type == "sse":
             await self._mcp_bridge.connect_sse(
-                server_cfg["url"], server_cfg.get("headers")
+                server_cfg.url, server_cfg.headers
             )
-          else:
-            raise ValueError(f"Unknown MCP server type: {srv_type}")
 
       self._strategy = self._config.create_strategy(
           tool_runner=self._tool_runner,

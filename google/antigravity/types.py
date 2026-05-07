@@ -24,7 +24,7 @@ import enum
 import itertools
 import mimetypes
 import pathlib
-from typing import Annotated, Any, AsyncIterator, Callable, List, Optional, Union
+from typing import Annotated, Any, AsyncIterator, Callable, List, Literal, Optional, Union
 
 import pydantic
 
@@ -258,6 +258,38 @@ class CapabilitiesConfig(pydantic.BaseModel):
           "enabled_tools and disabled_tools should be mutually exclusive."
       )
     return self
+
+
+class McpStdioServer(pydantic.BaseModel):
+  """Configuration for an MCP server connected via stdio.
+
+  Attributes:
+    command: The command to run to start the server.
+    type: The type of connection, always "stdio".
+    args: Arguments to pass to the command.
+  """
+
+  command: str
+  type: Literal["stdio"] = "stdio"
+  args: list[str] = pydantic.Field(default_factory=list)
+
+
+class McpSseServer(pydantic.BaseModel):
+  """Configuration for an MCP server connected via SSE.
+
+  Attributes:
+    url: The URL of the SSE endpoint.
+    type: The type of connection, always "sse".
+    headers: Optional headers to send with the connection request.
+  """
+
+  url: str
+  type: Literal["sse"] = "sse"
+  headers: dict[str, str] | None = None
+
+
+McpServerConfig = McpStdioServer | McpSseServer
+
 
 # =============================================================================
 # Tool types

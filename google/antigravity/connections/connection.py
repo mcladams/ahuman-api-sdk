@@ -51,7 +51,9 @@ class AgentConfig(abc.ABC, pydantic.BaseModel):
   policies: list[Any] = pydantic.Field(default_factory=list)
   hooks: list[Any] = pydantic.Field(default_factory=list)
   triggers: list[Any] = pydantic.Field(default_factory=list)
-  mcp_servers: list[dict[str, Any]] = pydantic.Field(default_factory=list)
+  mcp_servers: list[types.McpServerConfig] = pydantic.Field(
+      default_factory=list
+  )
   workspaces: list[str] = pydantic.Field(default_factory=list)
   conversation_id: str | None = None
   save_dir: str | None = None

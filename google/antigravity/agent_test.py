@@ -708,8 +708,8 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
     mock_mcp_bridge.return_value = mock_bridge_instance
 
     mcp_servers = [
-        {"type": "stdio", "command": "python3", "args": ["server.py"]},
-        {"type": "sse", "url": "http://localhost:8000/sse"},
+        types.McpStdioServer(command="python3", args=["server.py"]),
+        types.McpSseServer(url="http://localhost:8000/sse"),
     ]
 
     config = local_connection.LocalAgentConfig(

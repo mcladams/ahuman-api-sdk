@@ -49,11 +49,12 @@ async def main():
 
   mcp_servers = []
   if mcp_server_path:
-    mcp_servers.append({
-        "type": "stdio",
-        "command": mcp_server_path,
-        "args": ["--transport=stdio"],
-    })
+    mcp_servers.append(
+        types.McpStdioServer(
+            command=mcp_server_path,
+            args=["--transport=stdio"],
+        )
+    )
 
   print("Creating agent...")
   config = LocalAgentConfig(
