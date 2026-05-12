@@ -40,10 +40,7 @@ from google.antigravity import types
 from google.antigravity.agent import Agent
 from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
 from google.antigravity.hooks import cli
-from google.antigravity.hooks import hook_runner as hooks_runner
 from google.antigravity.hooks import policy
-from google.antigravity.mcp.bridge import McpBridge
-from google.antigravity.tools.tool_runner import ToolRunner
 
 _MODEL_NAME = flags.DEFINE_string(
     "model_name", "gemini-3-flash-preview", "Gemini model name."

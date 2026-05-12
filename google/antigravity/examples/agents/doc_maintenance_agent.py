@@ -22,9 +22,9 @@ import sys
 from google.antigravity import types
 from google.antigravity.agent import Agent
 from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
-from google.antigravity.hooks import cli
 from google.antigravity.hooks import policy
-from google.antigravity.hooks.hooks import HookContext, PreToolCallDecideHook
+from google.antigravity.hooks.hooks import HookContext
+from google.antigravity.hooks.hooks import PreToolCallDecideHook
 
 _TOOL_NAME_MAPPING = {
     "view_file": "Viewing Files",
@@ -89,7 +89,8 @@ async def main():
   target_dir = os.path.abspath(args.directory)
   print(f"Target directory: {target_dir}")
 
-  # Define policies: allow reading, list, and edit MD files only within target_dir.
+  # Define policies: allow reading, list, and edit MD files only within
+  # target_dir.
   def _is_allowed_md_file(tool_args) -> bool:
     path = tool_args.get("path") or tool_args.get("file_path") or ""
     if not path:

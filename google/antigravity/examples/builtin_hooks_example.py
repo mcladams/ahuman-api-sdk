@@ -41,9 +41,8 @@ from absl import logging
 
 from google.antigravity import types
 from google.antigravity.agent import Agent
-from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
 from google.antigravity.connections.local import types as local_types
-from google.antigravity.hooks import hook_runner as hooks_runner
+from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
 from google.antigravity.hooks import hooks
 
 # =============================================================================

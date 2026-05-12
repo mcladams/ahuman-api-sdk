@@ -67,9 +67,7 @@ from absl import logging
 from google.antigravity import types
 from google.antigravity.agent import Agent
 from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
-from google.antigravity.hooks import hook_runner as hooks_runner
 from google.antigravity.hooks import hooks
-from google.antigravity.tools.tool_runner import ToolRunner
 
 # =============================================================================
 # Hook implementations — each one simply logs what it received.

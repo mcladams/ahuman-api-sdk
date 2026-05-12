@@ -180,7 +180,7 @@ async def disconnect_cleanup() -> None:
 
   # Sending on a disconnected conversation should fail.
   try:
-    await conv.send("This should fail.")
+    await agent._conversation.send("This should fail.")  # pylint: disable=protected-access
     print("  FAIL: send() succeeded after disconnect.")
     raise RuntimeError("send() succeeded after disconnect.")
   except Exception as e:  # pylint: disable=broad-except

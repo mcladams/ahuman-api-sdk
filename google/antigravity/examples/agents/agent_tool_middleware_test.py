@@ -36,7 +36,6 @@ def _ctx() -> hooks.HookContext:
   return hooks.OperationContext(hooks.TurnContext(hooks.SessionContext()))
 
 
-
 class RateLimitHookTest(unittest.IsolatedAsyncioTestCase):
   """Tests for the per-tool rate limit decide hook."""
 

@@ -69,6 +69,12 @@ def _find_generated_image(name: str) -> str | None:
 
   The generate_image tool saves files as <name>_<timestamp>.png inside
   a conversation-specific brain directory.
+
+  Args:
+    name: The name of the image to search for.
+
+  Returns:
+    The path to the image file if found, else None.
   """
   base = os.path.expanduser("~/.gemini/antigravity/brain")
   if not os.path.isdir(base):

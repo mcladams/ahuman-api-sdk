@@ -24,7 +24,8 @@ from google.antigravity.agent import Agent
 from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
 
 from google.antigravity.hooks import policy
-from google.antigravity.hooks.hooks import HookContext, PreToolCallDecideHook
+from google.antigravity.hooks.hooks import HookContext
+from google.antigravity.hooks.hooks import PreToolCallDecideHook
 
 _TOOL_NAME_MAPPING = {
     types.BuiltinTools.VIEW_FILE.value: "Viewing Files",
