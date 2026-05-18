@@ -71,7 +71,7 @@ async def main():
     async with Agent(config) as agent:
         # Returns instantly — does not block
         response = await agent.chat("Write a short poem about space.")
-
+        
         async for token in response:
             sys.stdout.write(token)
             sys.stdout.flush()
@@ -131,17 +131,17 @@ async def main():
         tool_runner=tool_runner,
         gemini_config=GeminiConfig(api_key="GEMINI_API_KEY"),
     )
-
+    
     async with Conversation.create(strategy) as conversation:
         # High-level: one-call send + collect
         response = await conversation.chat("What files are here?")
         print(await response.text())
-
+        
         # Step history accumulates automatically
         print(f"Total steps: {len(conversation.history)}")
         print(f"Turns: {conversation.turn_count}")
         print(f"Last response: {conversation.last_response}")
-
+        
         # Low-level: streaming steps
         await conversation.send("Tell me more.")
         async for step in conversation.receive_steps():
