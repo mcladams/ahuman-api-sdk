@@ -71,11 +71,23 @@ pyenv global 3.10
 python3 --version
 
 # --- Read version from pyproject.toml if not set ---
-if [[ -z "${VERSION}" ]]; then
-  VERSION=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | grep -E '^version\s*=' | cut -d'"' -f2)
-fi
+if [[ -n "${PUBLISH_PREBUILT_VERSION:-}" ]]; then
+  VERSION="${PUBLISH_PREBUILT_VERSION}"
+  echo "=== RUNNING IN PUBLISH-ONLY MODE FOR VERSION v${VERSION} ==="
 
-echo "=== Google Antigravity SDK Release v${VERSION} ==="
+  DIST_DIR="dist"
+  rm -rf "${DIST_DIR}"
+  mkdir -p "${DIST_DIR}"
+
+  GCS_SOURCE="gs://agy-sdk-wheels/v${VERSION}"
+  echo "--- Downloading pre-built wheels from ${GCS_SOURCE} ---"
+  gcloud storage cp "${GCS_SOURCE}"/*.whl "${DIST_DIR}/"
+else
+  if [[ -z "${VERSION}" ]]; then
+    VERSION=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | grep -E '^version\s*=' | cut -d'"' -f2)
+  fi
+  echo "=== Google Antigravity SDK Release v${VERSION} ==="
+fi
 
 
 
@@ -96,125 +108,168 @@ declare -A PLATFORM_TAGS=(
   ["darwin-arm64"]="macosx_11_0_arm64"
 )
 
-BINARY_NAME="localharness"
-BIN_DEST="google/antigravity/bin"
-BINARIES_DIR=".kokoro/binaries"
+if [[ -z "${PUBLISH_PREBUILT_VERSION:-}" ]]; then
+  BINARY_NAME="localharness"
+  BIN_DEST="google/antigravity/bin"
+  BINARIES_DIR=".kokoro/binaries"
 
-# --- MPM directory mapping (populated by Kokoro fetch_mpm) ---
-MPM_DIR="${KOKORO_ARTIFACTS_DIR:-}/mpm"
-declare -A MPM_DIRS=(
-  ["linux-x86_64"]="localharness_linux_x86_64"
-  ["linux-arm64"]="localharness_linux_arm64"
-  ["darwin-arm64"]="localharness_darwin_arm64"
-)
+  # --- MPM directory mapping (populated by Kokoro fetch_mpm) ---
+  MPM_DIR="${KOKORO_ARTIFACTS_DIR:-}/mpm"
+  declare -A MPM_DIRS=(
+    ["linux-x86_64"]="localharness_linux_x86_64"
+    ["linux-arm64"]="localharness_linux_arm64"
+    ["darwin-arm64"]="localharness_darwin_arm64"
+  )
 
-# --- Fetch binaries from MPM or local ---
-for PLATFORM in "${!PLATFORM_TAGS[@]}"; do
-  LOCAL_BIN="${BINARIES_DIR}/${PLATFORM}/${BINARY_NAME}"
-  if [[ ! -f "${LOCAL_BIN}" ]]; then
-    MPM_SUBDIR="${MPM_DIRS[$PLATFORM]:-}"
-    MPM_BIN="${MPM_DIR}/${MPM_SUBDIR}/localharness_external"
-    if [[ -n "${MPM_SUBDIR}" && -f "${MPM_BIN}" ]]; then
-      echo "--- Copying ${PLATFORM} binary from MPM ---"
-      mkdir -p "${BINARIES_DIR}/${PLATFORM}"
-      cp "${MPM_BIN}" "${LOCAL_BIN}"
-      chmod +x "${LOCAL_BIN}"
-    else
-      if [[ -n "${KOKORO_ARTIFACTS_DIR}" ]]; then
-        echo "ERROR: No binary for ${PLATFORM} (looked in ${MPM_BIN})."
-        echo "In a release job, all platform binaries must be available."
-        exit 1
+  # --- Fetch binaries from MPM or local ---
+  for PLATFORM in "${!PLATFORM_TAGS[@]}"; do
+    LOCAL_BIN="${BINARIES_DIR}/${PLATFORM}/${BINARY_NAME}"
+    if [[ ! -f "${LOCAL_BIN}" ]]; then
+      MPM_SUBDIR="${MPM_DIRS[$PLATFORM]:-}"
+      MPM_BIN="${MPM_DIR}/${MPM_SUBDIR}/localharness_external"
+      if [[ -n "${MPM_SUBDIR}" && -f "${MPM_BIN}" ]]; then
+        echo "--- Copying ${PLATFORM} binary from MPM ---"
+        mkdir -p "${BINARIES_DIR}/${PLATFORM}"
+        cp "${MPM_BIN}" "${LOCAL_BIN}"
+        chmod +x "${LOCAL_BIN}"
+      else
+        if [[ -n "${KOKORO_ARTIFACTS_DIR}" ]]; then
+          echo "ERROR: No binary for ${PLATFORM} (looked in ${MPM_BIN})."
+          echo "In a release job, all platform binaries must be available."
+          exit 1
+        fi
+        echo "WARNING: No binary for ${PLATFORM} (looked in ${MPM_BIN}), skipping."
+        continue
       fi
-      echo "WARNING: No binary for ${PLATFORM} (looked in ${MPM_BIN}), skipping."
+    fi
+  done
+
+  # --- Build platform-specific wheels ---
+  BUILT_ANY=false
+
+  for PLATFORM in "${!PLATFORM_TAGS[@]}"; do
+    WHEEL_PLAT="${PLATFORM_TAGS[$PLATFORM]}"
+    LOCAL_BIN="${BINARIES_DIR}/${PLATFORM}/${BINARY_NAME}"
+
+    if [[ ! -f "${LOCAL_BIN}" ]]; then
+      echo "--- Skipping ${PLATFORM}: no binary available ---"
       continue
     fi
+
+    echo "--- Building wheel for ${PLATFORM} (${WHEEL_PLAT}) ---"
+
+    # Place the binary into the package namespace.
+    mkdir -p "${BIN_DEST}"
+    cp "${LOCAL_BIN}" "${BIN_DEST}/"
+    chmod +x "${BIN_DEST}/${BINARY_NAME}"
+
+    # Ensure __init__.py exists for the bin subpackage so setuptools
+    # discovers it via package-data.
+    touch "${BIN_DEST}/__init__.py"
+
+    # Build the wheel, then re-tag with the correct platform.
+    # --no-isolation: use the setuptools/wheel already installed via
+    # requirements-release.txt rather than creating a fresh venv that
+    # downloads from PyPI (which can time out and bypasses hash verification).
+    python3 -m build --wheel --no-isolation --outdir "${DIST_DIR}"
+    python3 -m wheel tags \
+      --platform-tag="${WHEEL_PLAT}" \
+      --remove \
+      "${DIST_DIR}"/*-py3-none-any.whl
+
+    echo "  -> $(ls -1 "${DIST_DIR}"/*"${WHEEL_PLAT}"*.whl 2>/dev/null | tail -1)"
+
+    # Clean the binary for the next platform iteration.
+    rm -rf "${BIN_DEST}"
+    BUILT_ANY=true
+  done
+
+  if [[ "${BUILT_ANY}" != "true" ]]; then
+    echo "ERROR: No wheels were built. Ensure binaries are available."
+    exit 1
   fi
-done
 
-# --- Build platform-specific wheels ---
-BUILT_ANY=false
-
-for PLATFORM in "${!PLATFORM_TAGS[@]}"; do
-  WHEEL_PLAT="${PLATFORM_TAGS[$PLATFORM]}"
-  LOCAL_BIN="${BINARIES_DIR}/${PLATFORM}/${BINARY_NAME}"
-
-  if [[ ! -f "${LOCAL_BIN}" ]]; then
-    echo "--- Skipping ${PLATFORM}: no binary available ---"
-    continue
-  fi
-
-  echo "--- Building wheel for ${PLATFORM} (${WHEEL_PLAT}) ---"
-
-  # Place the binary into the package namespace.
-  mkdir -p "${BIN_DEST}"
-  cp "${LOCAL_BIN}" "${BIN_DEST}/"
-  chmod +x "${BIN_DEST}/${BINARY_NAME}"
-
-  # Ensure __init__.py exists for the bin subpackage so setuptools
-  # discovers it via package-data.
-  touch "${BIN_DEST}/__init__.py"
-
-  # Build the wheel, then re-tag with the correct platform.
-  # --no-isolation: use the setuptools/wheel already installed via
-  # requirements-release.txt rather than creating a fresh venv that
-  # downloads from PyPI (which can time out and bypasses hash verification).
-  python3 -m build --wheel --no-isolation --outdir "${DIST_DIR}"
-  python3 -m wheel tags \
-    --platform-tag="${WHEEL_PLAT}" \
-    --remove \
-    "${DIST_DIR}"/*-py3-none-any.whl
-
-  echo "  -> $(ls -1 "${DIST_DIR}"/*"${WHEEL_PLAT}"*.whl 2>/dev/null | tail -1)"
-
-  # Clean the binary for the next platform iteration.
-  rm -rf "${BIN_DEST}"
-  BUILT_ANY=true
-done
-
-if [[ "${BUILT_ANY}" != "true" ]]; then
-  echo "ERROR: No wheels were built. Ensure binaries are available."
-  exit 1
+  echo ""
+  echo "--- Built wheels ---"
+  ls -lh "${DIST_DIR}/"
 fi
 
-echo ""
-echo "--- Built wheels ---"
-ls -lh "${DIST_DIR}/"
+# ---------------------------------------------------------------------------
+# Prepublish Staging Flow (Default Mode)
+# ---------------------------------------------------------------------------
+# If PUBLISH is not "true" and we are not running in publish-prebuilt mode,
+# stage the wheels internally to GCS and Google Drive, then exit.
+if [[ "${PUBLISH:-}" != "true" && -z "${PUBLISH_PREBUILT_VERSION:-}" ]]; then
+  echo ""
+  echo "=== PREPUBLISH: Staging wheels internally (Default Mode) ==="
 
-# --- Upload to OSS Exit Gate ---
-REPO_URL="https://us-python.pkg.dev/oss-exit-gate-prod/google-antigravity--pypi/"
-echo ""
-echo "--- Validating wheels ---"
-twine check "${DIST_DIR}"/*
-echo ""
-echo "--- Uploading to OSS Exit Gate (${REPO_URL}) ---"
-twine upload \
-  --repository-url "${REPO_URL}" \
-  --verbose \
-  "${DIST_DIR}"/*
+  # 1. Upload wheels to GCS bucket
+  GCS_DEST="gs://agy-sdk-wheels/v${VERSION}"
+  echo "--- Uploading wheels to GCS staging: ${GCS_DEST}/ ---"
+  gcloud storage cp "${DIST_DIR}"/*.whl "${GCS_DEST}/"
+
+  # 2. Upload wheels to Google Drive folder
+  DRIVE_PARENT_ID="1IKWv5h6lEtat454DiwZsTa3rkG1kEqxH"
+  GDRIVE_CLI="/google/bin/releases/gemini-agents-gdrive/gdrive"
+
+  # Create version subfolder under Drive parent (ignoring failures)
+  FOLDER_META=$("${GDRIVE_CLI}" mkdir "v${VERSION}" --parent "${DRIVE_PARENT_ID}" --json 2>/dev/null || true)
+
+  DRIVE_FOLDER_ID=""
+  if [[ -n "${FOLDER_META}" ]]; then
+    DRIVE_FOLDER_ID=$(echo "${FOLDER_META}" | grep -oP '"id":\s*"\K[^"]+' || true)
+  fi
+
+  if [[ -n "${DRIVE_FOLDER_ID}" ]]; then
+    for WHEEL in "${DIST_DIR}"/*.whl; do
+      "${GDRIVE_CLI}" upload "${WHEEL}" --parent "${DRIVE_FOLDER_ID}"
+    done
+    echo "  Uploaded wheels to Google Drive (Folder ID: ${DRIVE_FOLDER_ID})"
+  else
+    echo "WARNING: Failed to create Google Drive subfolder, skipping Drive upload."
+  fi
+
+  echo "=== Prepublish staging complete ==="
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
-# Manifest upload — triggers promotion from AR staging to public PyPI.
+# Publish to PyPI (Only when publishing or promoting)
 # ---------------------------------------------------------------------------
-#
-# The OSS Exit Gate uses a GCS manifest as the "publish now" signal.
-# Uploading this file triggers the Exit Gate to verify and publish all
-# staged artifacts to pypi.org.  See go/oss-exit-gate-release-python.
-#
-# The manifest is a simple JSON file: { "publish_all": true }
-# It is uploaded to:
-#   gs://oss-exit-gate-prod-projects-bucket/google-antigravity/pypi/manifests/
-#
-EG_GCS_BUCKET="gs://oss-exit-gate-prod-projects-bucket/google-antigravity/pypi/manifests"
+if [[ "${PUBLISH:-}" == "true" || -n "${PUBLISH_PREBUILT_VERSION:-}" ]]; then
+  # 1. Twine Upload to the secure OSS Exit Gate
+  REPO_URL="https://us-python.pkg.dev/oss-exit-gate-prod/google-antigravity--pypi/"
+  echo ""
+  echo "--- Validating wheels ---"
+  twine check "${DIST_DIR}"/*
+  echo ""
+  echo "--- Uploading to OSS Exit Gate (${REPO_URL}) ---"
+  twine upload \
+    --repository-url "${REPO_URL}" \
+    --verbose \
+    "${DIST_DIR}"/*
 
-echo ""
-echo "--- Publishing to PyPI: uploading manifest to OSS Exit Gate ---"
-MANIFEST_FILE="manifest.json"
-echo '{ "publish_all": true }' > "${MANIFEST_FILE}"
-MANIFEST_NAME="manifest-v${VERSION}-$(date -u +%Y%m%d-%H%M%S).json"
-gcloud storage cp "${MANIFEST_FILE}" "${EG_GCS_BUCKET}/${MANIFEST_NAME}"
-rm -f "${MANIFEST_FILE}"
-echo "  Manifest uploaded: ${EG_GCS_BUCKET}/${MANIFEST_NAME}"
-echo "  The OSS Exit Gate will now verify and publish to pypi.org."
-echo "  Monitor progress at: http://go/spng2?q=PROJECT%3Agoogle-antigravity%2Fpypi"
-echo ""
-echo "--- Release v${VERSION} published ---"
+  # 2. Manifest upload — triggers promotion from AR staging to public PyPI.
+  # The OSS Exit Gate uses a GCS manifest as the "publish now" signal.
+  # Uploading this file triggers the Exit Gate to verify and publish all
+  # staged artifacts to pypi.org. See go/oss-exit-gate-release-python.
+  EG_GCS_BUCKET="gs://oss-exit-gate-prod-projects-bucket/google-antigravity/pypi/manifests"
+
+  echo ""
+  echo "--- Publishing to PyPI: uploading manifest to OSS Exit Gate ---"
+  MANIFEST_FILE="manifest.json"
+  echo '{ "publish_all": true }' > "${MANIFEST_FILE}"
+  MANIFEST_NAME="manifest-v${VERSION}-$(date -u +%Y%m%d-%H%M%S).json"
+  gcloud storage cp "${MANIFEST_FILE}" "${EG_GCS_BUCKET}/${MANIFEST_NAME}"
+  rm -f "${MANIFEST_FILE}"
+
+  echo "  Manifest uploaded: ${EG_GCS_BUCKET}/${MANIFEST_NAME}"
+  echo "  The OSS Exit Gate will now verify and publish to pypi.org."
+  echo "  Monitor progress at: http://go/spng2?q=PROJECT%3Agoogle-antigravity%2Fpypi"
+  echo ""
+  echo "--- Release v${VERSION} published ---"
+else
+  echo ""
+  echo "--- Staging verified. Manifest upload & Exit Gate skipped (PUBLISH is false) ---"
+  echo ""
+fi
